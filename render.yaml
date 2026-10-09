@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: jongq-frontend
+    runtime: docker
+    plan: free
+    region: ohio
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    envVars:
+      - key: API_BACKEND_ORIGIN
+        sync: false
