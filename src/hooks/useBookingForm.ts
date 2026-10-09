@@ -29,8 +29,8 @@ export function useBookingForm() {
     setName(''); setPhone(''); setSelected('')
   }
   return {
-    name, setName, phone, setPhone, selected, review, setReview, notice, busy,
+    name, setName, phone, setPhone, selected, review, setReview, notice, busy, loading, availabilityReady: !!date,
     phoneInvalid, valid, isOccupied, isExpired, submit, confirmBooking,
-    selectTime(time: string) { if (isOccupied(time) || isExpired(time)) return; setSelected(time); setNotice('') },
+    selectTime(time: string) { if (!date || loading || isOccupied(time) || isExpired(time)) return; setSelected(time); setNotice('') },
   }
 }

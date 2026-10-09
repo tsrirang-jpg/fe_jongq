@@ -66,3 +66,7 @@ After changing the backend to this version, restart it and reload the browser. T
 ## Booking hours
 
 Bookings run from 09:00 through 18:00 in 30-minute slots (19 slots) in Asia/Bangkok. A slot must start strictly after the server's current time. The API supplies serverNow and startsAt; the frontend compensates for device clock differences and disables expired buttons using a local deadline timer, without polling. The backend validates time again before saving. Flyway V2 updates the database's allowed-time constraint while preserving existing bookings.
+
+## Startup recovery
+
+API requests allow up to 120 seconds for a sleeping free-tier backend to start. The login form remains accessible when the initial session check is pending or fails. Booking availability loads independently of SSE startup; unknown availability is labeled as loading rather than expired. When SSE first connects after a session-check failure, the app retries that check and refreshes availability. There is no periodic API polling and no automatic replay of booking POST requests.

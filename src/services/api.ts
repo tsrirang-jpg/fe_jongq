@@ -21,7 +21,7 @@ export function api<T>(path: string, options: Options = {}): Promise<T> {
   return request
 }
 async function send<T>(path: string, { method = 'GET', body, notifyUnauthorized = true }: Options): Promise<T> {
-  const signal = AbortSignal.timeout(15_000)
+  const signal = AbortSignal.timeout(120_000)
   const headers: Record<string, string> = {}
   try {
     if (method !== 'GET') {
@@ -43,7 +43,7 @@ async function send<T>(path: string, { method = 'GET', body, notifyUnauthorized 
     return response.status === 204 ? undefined as T : await response.json() as T
   } catch (error) {
     if (error instanceof ApiError) throw error
-    if (signal.aborted) throw new ApiError('เซิร์ฟเวอร์ไม่ตอบกลับ กรุณาลองเข้าสู่ระบบอีกครั้ง', 408)
+    if (signal.aborted) throw new ApiError('เซิร์ฟเวอร์ยังไม่พร้อม กรุณารอสักครู่แล้วลองอีกครั้ง', 408)
     throw new ApiError('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาตรวจสอบว่า backend กำลังทำงาน', 0)
   }
 }

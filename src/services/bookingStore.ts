@@ -70,6 +70,7 @@ function scheduleRefresh() {
   refreshTimer = window.setTimeout(() => { void refreshBookings() }, 150)
 }
 export function isSlotExpired(time: string): boolean {
+  if (!snapshot.date) return false // Unknown availability is loading, not an expired slot.
   return hasSlotExpired(snapshot.slotStartsAt[time], Date.now() + snapshot.clockOffsetMs)
 }
 function expireSlots() {
@@ -107,11 +108,12 @@ export function subscribeBookings(listener: () => void) {
       publish({ ...snapshot, bookings: [], loading: true })
       scheduleRefresh()
     })
+    void refreshBookings() // Load immediately; SSE startup must not gate availability.
     let fallbackLoaded = false
     unsubscribeEvents = subscribeBookingEvents({
       onConnected(reconnected) {
         publish({ ...snapshot, liveError: null })
-        if (reconnected && getAuthSnapshot().admin) {
+        if (getAuthSnapshot().error || getAuthSnapshot().loading || (reconnected && getAuthSnapshot().admin)) {
           void refreshSession().then(scheduleRefresh)
         } else scheduleRefresh()
       },
@@ -121,7 +123,7 @@ export function subscribeBookings(listener: () => void) {
       onUnavailable() {
         publish({ ...snapshot, liveError: 'การอัปเดตสดขาดการเชื่อมต่อ ระบบกำลังเชื่อมต่อใหม่ คุณสามารถกดโหลดข้อมูลใหม่ได้' })
         // Load once if SSE is unavailable initially; do not turn retries into polling.
-        if (!fallbackLoaded && snapshot.date === null) {
+        if (!fallbackLoaded && snapshot.date === null && !refreshPromise) {
           fallbackLoaded = true
           void refreshBookings()
         }

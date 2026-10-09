@@ -50,6 +50,7 @@ function harness() {
     requests.push(`${method} ${url}`)
     const body = options.body ? JSON.parse(options.body) : null
     if (url === '/api/auth/csrf') return response({ token: 'csrf', headerName: 'X-CSRF-TOKEN' })
+    if (url === '/api/auth/me' && server.authFailures > 0) { server.authFailures--; return response({ message: 'Server starting' }, 503) }
     if (url === '/api/auth/me') return server.signedIn
       ? response({ username: 'admin', role: 'admin', expiresAt: Date.now() + 28_800_000 })
       : response({ message: 'Signed out' }, 401)
@@ -110,7 +111,7 @@ test('booking data reloads on changes, not polling or focus, and coalesces local
   h.streams[0].open()
   await h.flush()
   assert.equal(h.requests.filter(request => request === 'GET /api/auth/me').length, 1)
-  assert.equal(h.requests.filter(request => request === 'GET /api/slots').length, 1)
+  assert.equal(h.requests.filter(request => request === 'GET /api/slots').length, 2)
   const idleRequests = h.requests.length
   h.browserWindow.dispatchEvent(new Event('focus'))
   h.documentEvents.get('visibilitychange')?.()
@@ -121,7 +122,7 @@ test('booking data reloads on changes, not polling or focus, and coalesces local
   h.server.bookings.push({ id: 'external', name: 'Other customer', phone: '0812345678', date: h.server.date, time: '10:00', status: 'waiting' })
   h.streams[0].change(); h.streams[0].change(); h.streams[0].change()
   await h.flush()
-  assert.equal(h.requests.filter(request => request === 'GET /api/slots').length, 2, 'burst grouped into one reload')
+  assert.equal(h.requests.filter(request => request === 'GET /api/slots').length, 3, 'burst grouped into one reload')
   assert.equal(bookings.getBookingSnapshot().occupiedTimes.includes('10:00'), true)
   assert.equal(bookings.getBookingSnapshot().bookings.length, 0, 'public state contains no customer list')
   const afterChange = h.requests.length
@@ -157,7 +158,7 @@ test('booking data reloads on changes, not polling or focus, and coalesces local
   assert.equal(h.timers.size, 0, 'unmount cleans up timers')
 })
 
-test('SSE outage falls back to one initial load without periodic retry requests', async () => {
+test('SSE outage keeps the initial load without periodic retry requests', async () => {
   const h = harness()
   const bookings = h.load('src/services/bookingStore.ts')
   const stop = bookings.subscribeBookings(() => {})
@@ -218,4 +219,28 @@ test('a slot expires while the page is idle without fetching and ignores a skewe
   assert.equal(h.requests.length, calls)
   stop()
   assert.equal(h.timers.size, 0)
+})
+test('unknown availability is not expired, and first SSE open recovers a failed session lookup', async () => {
+  const h = harness()
+  h.server.date = '2026-10-09'
+  h.server.serverNow = '2026-10-09T10:04:00Z' // 17:04 Bangkok
+  h.server.authFailures = 1
+  const auth = h.load('src/services/authService.ts')
+  const bookings = h.load('src/services/bookingStore.ts')
+  assert.equal(bookings.isSlotExpired('17:30'), false, 'not loaded is not past')
+  assert.equal(bookings.isSlotExpired('18:00'), false)
+  const stop = bookings.subscribeBookings(() => {})
+  await h.flush()
+  assert.ok(auth.getAuthSnapshot().error, 'first session lookup failed during startup')
+  assert.equal(bookings.getBookingSnapshot().date, h.server.date, 'availability loads without waiting for SSE')
+  assert.equal(bookings.isSlotExpired('17:30'), false)
+  assert.equal(bookings.isSlotExpired('18:00'), false)
+  h.streams[0].open()
+  await h.flush()
+  assert.equal(auth.getAuthSnapshot().error, null, 'connection recovery clears the stale auth error')
+  assert.equal(auth.getAuthSnapshot().loading, false)
+  assert.equal(bookings.isSlotExpired('17:00'), true)
+  assert.equal(bookings.isSlotExpired('17:30'), false)
+  assert.equal(bookings.isSlotExpired('18:00'), false)
+  stop()
 })

@@ -23,6 +23,7 @@ function publish(next: AuthSnapshot) {
 export async function refreshSession() {
   if (changingSession) return
   const request = ++generation
+  if (!snapshot.admin && !snapshot.loading) publish({ ...snapshot, loading: true, error: null })
   try {
     const admin = await api<AdminSession>('/auth/me', { notifyUnauthorized: false })
     if (request === generation) publish({ admin, loading: false, error: null })
@@ -67,12 +68,14 @@ export function subscribeAuth(listener: () => void) {
 export async function login(username: string, password: string): Promise<LoginResult> {
   changingSession = true
   const request = ++generation
+  if (!snapshot.admin && !snapshot.loading) publish({ ...snapshot, loading: true, error: null })
   try {
     const admin = await api<AdminSession>('/auth/login', { method: 'POST', body: { username: username.trim(), password }, notifyUnauthorized: false })
     if (request === generation) publish({ admin, loading: false, error: null })
     channel?.postMessage('auth-changed')
     return { ok: true }
   } catch (error) {
+    if (request === generation) publish({ ...snapshot, loading: false, error: null })
     const message = error instanceof ApiError && error.status === 401
       ? 'รหัสผ่านไม่ถูกต้อง'
       : errorMessage(error)
