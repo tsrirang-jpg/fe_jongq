@@ -4,7 +4,7 @@ import { useBookings } from './useBookings'
 import { isValidPhone } from '../services/bookingStore'
 
 export function useBookingForm() {
-  const { createBooking, isOccupied, loading, error, date } = useBookings()
+  const { createBooking, isOccupied, isExpired, loading, error, date } = useBookings()
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [selected, setSelected] = useState('')
@@ -12,13 +12,14 @@ export function useBookingForm() {
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
   const phoneInvalid = !!phone && !isValidPhone(phone)
-  const valid = !!name.trim() && isValidPhone(phone) && !!selected && !isOccupied(selected) && !!date && !loading && !error && !busy
+  const valid = !!name.trim() && isValidPhone(phone) && !!selected && !isOccupied(selected) && !isExpired(selected) && !!date && !loading && !error && !busy
   function submit(event: FormEvent) {
     event.preventDefault()
     if (valid) setReview(true)
   }
   async function confirmBooking() {
     if (busy) return
+    if (isExpired(selected)) { setReview(false); setNotice('เวลานี้ผ่านไปแล้ว กรุณาเลือกเวลาที่ยังไม่ถึง'); return }
     setBusy(true)
     const created = await createBooking({ name, phone, time: selected })
     setBusy(false)
@@ -29,7 +30,7 @@ export function useBookingForm() {
   }
   return {
     name, setName, phone, setPhone, selected, review, setReview, notice, busy,
-    phoneInvalid, valid, isOccupied, submit, confirmBooking,
-    selectTime(time: string) { setSelected(time); setNotice('') },
+    phoneInvalid, valid, isOccupied, isExpired, submit, confirmBooking,
+    selectTime(time: string) { if (isOccupied(time) || isExpired(time)) return; setSelected(time); setNotice('') },
   }
 }

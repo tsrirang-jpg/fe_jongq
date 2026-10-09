@@ -13,6 +13,8 @@ function harness() {
   const streams = []
   const channels = []
   let timerId = 0
+  let deviceNow = Date.now()
+  class DeviceDate extends Date { static now() { return deviceNow } }
   const server = { signedIn: false, date: '2026-10-08', bookings: [] }
   class FakeEventSource {
     handlers = new Map()
@@ -57,7 +59,8 @@ function harness() {
       return response({ username: 'admin', role: 'admin', expiresAt: Date.now() + 28_800_000 })
     }
     if (url === '/api/auth/logout') { server.signedIn = false; return response(null, 204) }
-    if (url === '/api/slots') return response({ date: server.date, slots: ['10:00', '10:30', '11:00'].map(time => ({ time, available: !server.bookings.some(booking => booking.time === time) })) })
+    if (url === '/api/slots' && server.serverNow) return response({ date: server.date, serverNow: server.serverNow, slots: ['10:00', '10:30', '11:00'].map(time => ({ time, booked: false, available: true, startsAt: server.date + 'T' + time + ':00+07:00' })) })
+    if (url === '/api/slots') return response({ date: server.date, serverNow: new Date().toISOString(), slots: ['10:00', '10:30', '11:00'].map((time, index) => ({ time, startsAt: new Date(Date.now() + (index + 1) * 1_800_000).toISOString(), booked: server.bookings.some(booking => booking.time === time), available: !server.bookings.some(booking => booking.time === time) })) })
     if (url.startsWith('/api/bookings?')) return server.signedIn ? response(server.bookings) : response({ message: 'Signed out' }, 401)
     if (method === 'POST' && url === '/api/bookings') {
       const booking = { ...body, id: 'new-booking', status: 'waiting' }
@@ -74,7 +77,7 @@ function harness() {
     throw new Error(`Unhandled request: ${method} ${url}`)
   }
   const modules = new Map()
-  const context = vm.createContext({ window: browserWindow, document, EventSource: FakeEventSource, BroadcastChannel: FakeBroadcastChannel, fetch, Event, AbortSignal, console })
+  const context = vm.createContext({ Date: DeviceDate, window: browserWindow, document, EventSource: FakeEventSource, BroadcastChannel: FakeBroadcastChannel, fetch, Event, AbortSignal, console })
   function load(file) {
     file = path.resolve(file)
     if (modules.has(file)) return modules.get(file)
@@ -93,7 +96,7 @@ function harness() {
       }
     }
   }
-  return { requests, timers, streams, channels, server, browserWindow, documentEvents, load, flush }
+  return { requests, timers, streams, channels, server, browserWindow, documentEvents, load, flush, advanceClock(milliseconds) { deviceNow += milliseconds } }
 }
 
 test('booking data reloads on changes, not polling or focus, and coalesces local writes', async () => {
@@ -177,4 +180,42 @@ test('invalid backend credentials produce the requested password warning without
   assert.equal(result.error, 'รหัสผ่านไม่ถูกต้อง')
   assert.equal(auth.getAuthSnapshot().admin, null)
   assert.equal(h.requests.filter(request => request === 'POST /api/auth/login').length, 1)
+})
+test('opening hours and expiry use Bangkok time with an exclusive current-time boundary', () => {
+  const h = harness()
+  const { TIME_SLOTS } = h.load('src/constants/booking.ts')
+  const { getSlotStart, hasSlotExpired } = h.load('src/services/bookingTime.ts')
+  assert.equal(TIME_SLOTS.length, 19)
+  assert.equal(TIME_SLOTS[0], '09:00')
+  assert.equal(TIME_SLOTS[18], '18:00')
+  const startsAt = getSlotStart('2026-10-09', '10:30')
+  assert.equal(startsAt, Date.parse('2026-10-09T03:30:00Z'))
+  assert.equal(hasSlotExpired(startsAt, startsAt - 1), false)
+  assert.equal(hasSlotExpired(startsAt, startsAt), true)
+  assert.equal(hasSlotExpired(startsAt, startsAt + 1), true)
+  assert.equal(hasSlotExpired(NaN, startsAt), true)
+})
+test('a slot expires while the page is idle without fetching and ignores a skewed device clock', async () => {
+  const h = harness()
+  h.server.date = '2026-10-09'
+  h.server.serverNow = '2026-10-09T03:29:59.000Z'
+  h.advanceClock(7_200_000)
+  const bookings = h.load('src/services/bookingStore.ts')
+  const stop = bookings.subscribeBookings(() => {})
+  h.streams[0].open()
+  await h.flush()
+  assert.equal(bookings.isSlotExpired('10:00'), true)
+  assert.equal(bookings.isSlotExpired('10:30'), false)
+  assert.equal(bookings.getBookingSnapshot().expiredTimes.includes('10:30'), false)
+  const calls = h.requests.length
+  const [timerId, timer] = [...h.timers].sort((a, b) => a[1].delay - b[1].delay)[0]
+  assert.equal(timer.delay, 1000)
+  h.advanceClock(1000)
+  h.timers.delete(timerId)
+  timer.callback()
+  assert.equal(bookings.isSlotExpired('10:30'), true)
+  assert.equal(bookings.getBookingSnapshot().expiredTimes.includes('10:30'), true)
+  assert.equal(h.requests.length, calls)
+  stop()
+  assert.equal(h.timers.size, 0)
 })

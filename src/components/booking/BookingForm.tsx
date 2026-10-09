@@ -16,8 +16,8 @@ export default function BookingForm() {
         autoComplete="tel" pattern="0[689][0-9]{8}" required aria-invalid={form.phoneInvalid}
         aria-describedby={form.phoneInvalid ? 'phone-help' : undefined} />
       {form.phoneInvalid && <p className="field-error" id="phone-help">กรอกเบอร์มือถือ 10 หลัก เริ่มต้นด้วย 06, 08 หรือ 09</p>}
-      <TimeSlotPicker selected={form.selected} isOccupied={form.isOccupied} onSelect={form.selectTime} />
-      <p className="hint">เวลาสีจางคือคิวที่ถูกจองแล้ว</p>
+      <TimeSlotPicker selected={form.selected} isOccupied={form.isOccupied} isExpired={form.isExpired} onSelect={form.selectTime} />
+      <p className="hint">เวลาสีจางคือคิวที่ถูกจองแล้วหรือผ่านเวลาแล้ว (เวลาไทย)</p>
       <button className="primary booking-submit" disabled={!form.valid}>ตรวจสอบการจอง <Icon kind="arrow" /></button>
     </form>
     {form.notice && <p className="notice" role="status">{form.notice}</p>}

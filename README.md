@@ -63,3 +63,6 @@ SSE reconnects automatically; a reconnect reloads missed changes and checks the 
 `/auth/me` runs on initial subscription, on reconnection for an admin, when the known session expiry is reached, and on an explicit retry or cross-tab auth change. Login/logout changes are communicated with BroadcastChannel without sending credentials. Visibility changes check only an already overdue session. It is not checked every minute or on every focus.
 
 After changing the backend to this version, restart it and reload the browser. The SSE request stays Pending in DevTools while its connection is open; this is expected.
+## Booking hours
+
+Bookings run from 09:00 through 18:00 in 30-minute slots (19 slots) in Asia/Bangkok. A slot must start strictly after the server's current time. The API supplies serverNow and startsAt; the frontend compensates for device clock differences and disables expired buttons using a local deadline timer, without polling. The backend validates time again before saving. Flyway V2 updates the database's allowed-time constraint while preserving existing bookings.
