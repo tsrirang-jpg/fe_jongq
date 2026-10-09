@@ -3,7 +3,7 @@ import { useBookings } from './useBookings'
 import type { Booking, BookingFilter, BookingStatus } from '../types/booking'
 
 export function useAdminDashboard() {
-  const { bookings, changeBookingStatus, removeBooking, loading } = useBookings()
+  const { bookings, changeBookingStatus, removeBooking, loading, adminLoading } = useBookings()
   const [filter, setFilter] = useState<BookingFilter>('all')
   const [deleting, setDeleting] = useState<Booking | null>(null)
   const [busy, setBusy] = useState(false)
@@ -26,5 +26,5 @@ export function useAdminDashboard() {
     setBusy(false)
     if (removed) setDeleting(null)
   }
-  return { filter, setFilter, deleting, setDeleting, visibleBookings, stats, busy: busy || loading, changeBookingStatus: updateStatus, confirmDelete }
+  return { filter, setFilter, deleting, setDeleting, visibleBookings, stats, busy: busy || loading || adminLoading, changeBookingStatus: updateStatus, confirmDelete }
 }

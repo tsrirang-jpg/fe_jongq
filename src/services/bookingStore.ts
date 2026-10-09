@@ -6,8 +6,8 @@ import { getSlotStart, hasSlotExpired } from './bookingTime'
 import type { Booking, BookingInput, BookingStatus } from '../types/booking'
 
 type Availability = { date: string; serverNow?: string; slots: { time: string; available: boolean; booked?: boolean; startsAt?: string }[] }
-type Snapshot = { bookings: Booking[]; occupiedTimes: string[]; expiredTimes: string[]; slotStartsAt: Record<string, number>; clockOffsetMs: number; date: string | null; loading: boolean; error: string | null; liveError: string | null }
-let snapshot: Snapshot = { bookings: [], occupiedTimes: [], expiredTimes: [], slotStartsAt: {}, clockOffsetMs: 0, date: null, loading: true, error: null, liveError: null }
+type Snapshot = { bookings: Booking[]; occupiedTimes: string[]; expiredTimes: string[]; slotStartsAt: Record<string, number>; clockOffsetMs: number; date: string | null; loading: boolean; error: string | null; liveError: string | null; adminLoading: boolean; adminError: string | null }
+let snapshot: Snapshot = { bookings: [], occupiedTimes: [], expiredTimes: [], slotStartsAt: {}, clockOffsetMs: 0, date: null, loading: true, error: null, liveError: null, adminLoading: false, adminError: null }
 let generation = 0
 let writes = 0
 let refreshPromise: Promise<void> | null = null
@@ -36,16 +36,24 @@ async function loadBookings() {
     for (const slot of availability.slots) {
       if (slot.startsAt) slotStartsAt[slot.time] = Date.parse(slot.startsAt)
     }
-    const bookings = authenticated ? await api<Booking[]>(`/bookings?date=${availability.date}`) : []
-    if (request === generation) publish({
-      ...snapshot, bookings, date: availability.date,
+    if (request !== generation) return
+    publish({
+      ...snapshot, bookings: authenticated ? snapshot.bookings : [], date: availability.date,
       occupiedTimes: availability.slots.filter(slot => slot.booked ?? !slot.available).map(slot => slot.time),
       expiredTimes: TIME_SLOTS.filter(time => hasSlotExpired(slotStartsAt[time], Date.now() + clockOffsetMs)),
-      slotStartsAt, clockOffsetMs, loading: false, error: null,
+      slotStartsAt, clockOffsetMs, loading: false, error: null, adminLoading: authenticated, adminError: null,
     })
-    if (request === generation && listeners.size > 0) { scheduleSlotExpiry(); scheduleDayChange() }
+    if (listeners.size > 0) { scheduleSlotExpiry(); scheduleDayChange() }
+    if (authenticated) {
+      try {
+        const bookings = await api<Booking[]>(`/bookings?date=${availability.date}`)
+        if (request === generation) publish({ ...snapshot, bookings, adminLoading: false, adminError: null })
+      } catch (error) {
+        if (request === generation) publish({ ...snapshot, bookings: [], adminLoading: false, adminError: errorMessage(error) })
+      }
+    }
   } catch (error) {
-    if (request === generation) publish({ ...snapshot, loading: false, error: errorMessage(error) })
+    if (request === generation) publish({ ...snapshot, loading: false, adminLoading: false, error: errorMessage(error) })
   }
 }
 export function refreshBookings(): Promise<void> {
@@ -105,7 +113,7 @@ export function subscribeBookings(listener: () => void) {
       if (nextUsername === username) return
       username = nextUsername
       generation++ // Discard an in-flight admin response after logout.
-      publish({ ...snapshot, bookings: [], loading: true })
+      publish({ ...snapshot, bookings: [], loading: snapshot.date === null, adminLoading: !!nextUsername, adminError: null })
       scheduleRefresh()
     })
     void refreshBookings() // Load immediately; SSE startup must not gate availability.

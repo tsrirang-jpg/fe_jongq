@@ -62,6 +62,7 @@ function harness() {
     if (url === '/api/auth/logout') { server.signedIn = false; return response(null, 204) }
     if (url === '/api/slots' && server.serverNow) return response({ date: server.date, serverNow: server.serverNow, slots: ['10:00', '10:30', '11:00'].map(time => ({ time, booked: false, available: true, startsAt: server.date + 'T' + time + ':00+07:00' })) })
     if (url === '/api/slots') return response({ date: server.date, serverNow: new Date().toISOString(), slots: ['10:00', '10:30', '11:00'].map((time, index) => ({ time, startsAt: new Date(Date.now() + (index + 1) * 1_800_000).toISOString(), booked: server.bookings.some(booking => booking.time === time), available: !server.bookings.some(booking => booking.time === time) })) })
+    if (url.startsWith('/api/bookings?') && server.adminListGate) await server.adminListGate
     if (url.startsWith('/api/bookings?')) return server.signedIn ? response(server.bookings) : response({ message: 'Signed out' }, 401)
     if (method === 'POST' && url === '/api/bookings') {
       const booking = { ...body, id: 'new-booking', status: 'waiting' }
@@ -242,5 +243,26 @@ test('unknown availability is not expired, and first SSE open recovers a failed 
   assert.equal(bookings.isSlotExpired('17:00'), true)
   assert.equal(bookings.isSlotExpired('17:30'), false)
   assert.equal(bookings.isSlotExpired('18:00'), false)
+  stop()
+})
+test('a slow admin list does not disable already loaded public availability', async () => {
+  const h = harness()
+  h.server.signedIn = true
+  h.server.date = '2026-10-09'
+  h.server.serverNow = '2026-10-09T10:04:00Z'
+  let release
+  h.server.adminListGate = new Promise(resolve => { release = resolve })
+  const bookings = h.load('src/services/bookingStore.ts')
+  const stop = bookings.subscribeBookings(() => {})
+  h.streams[0].open()
+  await h.flush()
+  assert.equal(bookings.getBookingSnapshot().loading, false, 'public availability is already usable')
+  assert.equal(bookings.getBookingSnapshot().adminLoading, true, 'private list is still loading')
+  assert.equal(bookings.getBookingSnapshot().error, null)
+  assert.equal(bookings.isSlotExpired('17:30'), false)
+  assert.equal(bookings.isSlotExpired('18:00'), false)
+  release()
+  await h.flush()
+  assert.equal(bookings.getBookingSnapshot().adminLoading, false)
   stop()
 })
